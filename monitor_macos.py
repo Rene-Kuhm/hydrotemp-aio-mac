@@ -336,77 +336,63 @@ def _cpu_temp_osx_cpu_temp() -> Optional[float]:
     return None
 
 
-def _powermetrics_sample() -> Optional[dict]:
+@dataclass
+class _PMData:
+    cpu_power_w: Optional[float] = None
+    cpu_freq_mhz: Optional[float] = None
+
+
+def _powermetrics_sample() -> Optional[_PMData]:
     """
-    Ejecuta powermetrics una vez y devuelve el JSON parseado.
+    Ejecuta powermetrics una vez y parsea la salida en texto plano.
+    En Mac Pro / Sequoia -f json no funciona; se parsea el texto directamente.
     Requiere: sudo visudo → NOPASSWD para /usr/bin/powermetrics
+
+    Líneas relevantes en la salida:
+      Intel energy model derived package power (CPUs+GT+SA): 17.89W
+      System Average frequency as fraction of nominal: 172.77% (3645.42 Mhz)
     """
     try:
         r = subprocess.run(
             [
                 "sudo", "-n", "powermetrics",
                 "--sample-count", "1",
-                "--samplers", "cpu_power,gpu_power",
-                "-f", "json",
-                "-i", "500",
+                "--samplers", "cpu_power",
+                "-i", "300",
             ],
             capture_output=True, text=True, timeout=8,
         )
-        if r.returncode == 0:
-            text  = r.stdout.strip()
-            start = text.find("{")
-            if start != -1:
-                return json.loads(text[start:])
+        if r.returncode != 0:
+            return None
+        text = r.stdout
+        result = _PMData()
+
+        # Potencia CPU — "... package power ...: 17.89W"
+        m = _re.search(r'package power[^:]*:\s*([\d.]+)\s*W', text, _re.IGNORECASE)
+        if m:
+            result.cpu_power_w = float(m.group(1))
+
+        # Frecuencia — "System Average frequency ... (3645.42 Mhz)"
+        m = _re.search(r'\(([\d.]+)\s*Mhz\)', text, _re.IGNORECASE)
+        if m:
+            result.cpu_freq_mhz = float(m.group(1))
+
+        return result if (result.cpu_power_w or result.cpu_freq_mhz) else None
     except Exception as e:
         log.debug("powermetrics: %s", e)
     return None
 
 
-def _cpu_power_from_pm(pm: dict) -> Optional[float]:
-    """Potencia del paquete CPU en W desde un sample de powermetrics."""
-    try:
-        proc     = pm.get("processor", {})
-        pkgs     = proc.get("packages", [])
-        elapsed  = pm.get("elapsed_ns", 0)
-        if pkgs and elapsed > 0:
-            joules = pkgs[0].get("package_joules")
-            if joules is not None:
-                return float(joules) / (elapsed / 1e9)
-    except (KeyError, TypeError, ZeroDivisionError):
-        pass
-    return None
+def _cpu_power_from_pm(pm: _PMData) -> Optional[float]:
+    return pm.cpu_power_w if pm else None
 
 
-def _cpu_freq_from_pm(pm: dict) -> Optional[float]:
-    """Frecuencia CPU media en MHz desde un sample de powermetrics."""
-    try:
-        proc  = pm.get("processor", {})
-        pkgs  = proc.get("packages", [])
-        if pkgs:
-            cores = pkgs[0].get("cores", [])
-            freqs = [c["effective_clock"] for c in cores if "effective_clock" in c]
-            if freqs:
-                return sum(freqs) / len(freqs)
-    except (KeyError, TypeError):
-        pass
-    return None
+def _cpu_freq_from_pm(pm: _PMData) -> Optional[float]:
+    return pm.cpu_freq_mhz if pm else None
 
 
-def _cpu_voltage_from_pm(pm: dict) -> Optional[float]:
-    """Voltaje VID del primer core en V desde un sample de powermetrics."""
-    try:
-        proc = pm.get("processor", {})
-        pkgs = proc.get("packages", [])
-        if pkgs:
-            cores = pkgs[0].get("cores", [])
-            if cores:
-                v = cores[0].get("volt")
-                if v and v > 0:
-                    # powermetrics reporta en mV en Intel
-                    return float(v) / 1000.0 if v > 10 else float(v)
-    except (KeyError, TypeError):
-        pass
-    return None
+def _cpu_voltage_from_pm(pm: _PMData) -> Optional[float]:
+    return None  # no disponible en salida texto de powermetrics
 
 
 # ──────────────────────────────────────────────────────────────────────────────
