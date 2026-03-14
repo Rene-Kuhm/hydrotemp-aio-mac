@@ -405,7 +405,7 @@ import re as _re
 def _ioreg_accelerator() -> Optional[str]:
     try:
         r = subprocess.run(
-            ["ioreg", "-r", "-c", "IOAccelerator", "-d", "5"],
+            ["/usr/sbin/ioreg", "-r", "-c", "IOAccelerator", "-d", "5"],
             capture_output=True, text=True, timeout=5,
         )
         return r.stdout if r.returncode == 0 else None
@@ -516,6 +516,21 @@ class SensorCollector:
         for _ in range(3):
             psutil.cpu_percent(percpu=True)
             time.sleep(0.15)
+
+        # Verificar ioreg desde el hilo principal para detectar problemas de
+        # permisos cuando el driver corre como LaunchAgent (sin terminal).
+        _ioreg_test = _ioreg_accelerator()
+        if _ioreg_test:
+            _gpu_diag = _sample_gpu()
+            if _gpu_diag and _gpu_diag.temp_c:
+                log.info("GPU ioreg (main thread): %.0f°C %.0f%% %.0fMHz %.0fW",
+                         _gpu_diag.temp_c, _gpu_diag.usage_pct or 0,
+                         _gpu_diag.clock_mhz or 0, _gpu_diag.power_w or 0)
+            else:
+                log.warning("GPU ioreg OK (%d chars) pero no hay datos de rendimiento",
+                            len(_ioreg_test))
+        else:
+            log.warning("GPU ioreg: sin salida — posible problema de permisos en LaunchAgent")
 
         log.info(
             "Sensor backends: SMC=%s  powermetrics=async  GPU-ioreg=async  psutil=OK",
