@@ -116,57 +116,62 @@ except Exception as _e:
 
 if _IOKIT_OK:
     # Estructuras SMC — layout exacto del struct C (80 bytes total)
-    # Usamos _pack_ = 1 en todas para control total del layout y añadimos
-    # bytes de padding explícitos que coinciden con la alineación de C.
+    # Usamos _pack_ = 1 para control total del layout con padding explícito.
+    # Con _pack_=1 no hay diferencia entre GCC y MSVC (sin padding de ningún tipo),
+    # por eso suprimimos el DeprecationWarning de Python 3.14+ sobre _layout_.
+    import warnings as _warnings
 
-    class _SMCVers(ctypes.Structure):
-        _pack_ = 1
-        _fields_ = [
-            ("major",    ctypes.c_uint8),
-            ("minor",    ctypes.c_uint8),
-            ("build",    ctypes.c_uint8),
-            ("reserved", ctypes.c_uint8),
-            ("release",  ctypes.c_uint16),
-        ]   # 6 bytes
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", DeprecationWarning)
 
-    class _SMCPLimit(ctypes.Structure):
-        _pack_ = 1
-        _fields_ = [
-            ("version",   ctypes.c_uint16),
-            ("length",    ctypes.c_uint16),
-            ("cpuPLimit", ctypes.c_uint32),
-            ("gpuPLimit", ctypes.c_uint32),
-            ("memPLimit", ctypes.c_uint32),
-        ]   # 16 bytes
+        class _SMCVers(ctypes.Structure):
+            _pack_ = 1
+            _fields_ = [
+                ("major",    ctypes.c_uint8),
+                ("minor",    ctypes.c_uint8),
+                ("build",    ctypes.c_uint8),
+                ("reserved", ctypes.c_uint8),
+                ("release",  ctypes.c_uint16),
+            ]   # 6 bytes
 
-    class _SMCKeyInfo(ctypes.Structure):
-        _pack_ = 1
-        _fields_ = [
-            ("dataSize",       ctypes.c_uint32),
-            ("dataType",       ctypes.c_uint32),
-            ("dataAttributes", ctypes.c_uint8),
-        ]   # 9 bytes
+        class _SMCPLimit(ctypes.Structure):
+            _pack_ = 1
+            _fields_ = [
+                ("version",   ctypes.c_uint16),
+                ("length",    ctypes.c_uint16),
+                ("cpuPLimit", ctypes.c_uint32),
+                ("gpuPLimit", ctypes.c_uint32),
+                ("memPLimit", ctypes.c_uint32),
+            ]   # 16 bytes
 
-    class _SMCKeyData(ctypes.Structure):
-        # Offsets:
-        #  0: key(4)  4: vers(6)  [+2pad]  12: pLimitData(16)
-        # 28: keyInfo(9) [+3pad]  40: result(1) status(1) data8(1) [+1pad]
-        # 44: data32(4)  48: bytes(32)   total = 80
-        _pack_ = 1
-        _fields_ = [
-            ("key",        ctypes.c_uint32),
-            ("vers",       _SMCVers),
-            ("_pad0",      ctypes.c_uint8 * 2),
-            ("pLimitData", _SMCPLimit),
-            ("keyInfo",    _SMCKeyInfo),
-            ("_pad1",      ctypes.c_uint8 * 3),
-            ("result",     ctypes.c_uint8),
-            ("status",     ctypes.c_uint8),
-            ("data8",      ctypes.c_uint8),
-            ("_pad2",      ctypes.c_uint8),
-            ("data32",     ctypes.c_uint32),
-            ("bytes",      ctypes.c_uint8 * 32),
-        ]   # 80 bytes
+        class _SMCKeyInfo(ctypes.Structure):
+            _pack_ = 1
+            _fields_ = [
+                ("dataSize",       ctypes.c_uint32),
+                ("dataType",       ctypes.c_uint32),
+                ("dataAttributes", ctypes.c_uint8),
+            ]   # 9 bytes
+
+        class _SMCKeyData(ctypes.Structure):
+            # Offsets:
+            #  0: key(4)  4: vers(6)  [+2pad]  12: pLimitData(16)
+            # 28: keyInfo(9) [+3pad]  40: result(1) status(1) data8(1) [+1pad]
+            # 44: data32(4)  48: bytes(32)   total = 80
+            _pack_ = 1
+            _fields_ = [
+                ("key",        ctypes.c_uint32),
+                ("vers",       _SMCVers),
+                ("_pad0",      ctypes.c_uint8 * 2),
+                ("pLimitData", _SMCPLimit),
+                ("keyInfo",    _SMCKeyInfo),
+                ("_pad1",      ctypes.c_uint8 * 3),
+                ("result",     ctypes.c_uint8),
+                ("status",     ctypes.c_uint8),
+                ("data8",      ctypes.c_uint8),
+                ("_pad2",      ctypes.c_uint8),
+                ("data32",     ctypes.c_uint32),
+                ("bytes",      ctypes.c_uint8 * 32),
+            ]   # 80 bytes
 
     assert ctypes.sizeof(_SMCKeyData) == 80, (
         f"Layout _SMCKeyData incorrecto: {ctypes.sizeof(_SMCKeyData)} bytes (esperado 80)"
