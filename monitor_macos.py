@@ -510,8 +510,12 @@ class SensorCollector:
         )
         self._cputemp_bg.start()
 
-        # Calentar psutil (primera llamada siempre devuelve 0.0)
-        psutil.cpu_percent(percpu=True)
+        # Calentar psutil: la primera llamada siempre devuelve 0.0 y la segunda
+        # puede dar un pico alto (100%) porque mide el intervalo desde el inicio
+        # del proceso (muy ocupado). Varias llamadas con pausa estabilizan el valor.
+        for _ in range(3):
+            psutil.cpu_percent(percpu=True)
+            time.sleep(0.15)
 
         log.info(
             "Sensor backends: SMC=%s  powermetrics=async  GPU-ioreg=async  psutil=OK",
@@ -772,6 +776,12 @@ class Driver:
                 self._sensors.stop()
                 sys.exit(1)
 
+        # Warmup: esperar a que los hilos de fondo (powermetrics, ioreg GPU)
+        # tengan su primera lectura y psutil se estabilice.
+        # Sin esto, el primer paquete puede tener cpu_temp=0, max_thread=99.
+        log.info("Warmup 2s — inicializando sensores...")
+        time.sleep(2.0)
+
         try:
             while self._running:
                 t0 = time.monotonic()
@@ -803,6 +813,22 @@ class Driver:
                     )
 
                 packet = build_packet(s, self._counter)
+
+                # En el primer paquete loguear los valores exactos enviados
+                # para facilitar diagnóstico si el display muestra valores incorrectos.
+                if self._counter == 0:
+                    log.info(
+                        "Primer paquete → CPU: %d°C hotspot %d°C uso %d%% max %d%% "
+                        "%dMHz %dW %.2fV | GPU: %d°C %d%% %dMHz %dW | Fan: %d RPM",
+                        int(s.cpu_temp_c), int(s.cpu_hotspot_c),
+                        int(s.cpu_usage_pct), int(s.cpu_max_thread_pct),
+                        int(s.cpu_clock_mhz), int(s.cpu_power_w), s.cpu_voltage_v,
+                        int(s.gpu_temp_c), int(s.gpu_usage_pct),
+                        int(s.gpu_clock_mhz), int(s.gpu_power_w),
+                        s.cpu_fan_rpm,
+                    )
+                    log.info("Bytes [4..14]: %s", packet[4:15].hex(" "))
+
                 self._counter = (self._counter + 1) & 0xFF
 
                 if self._dry_run:
