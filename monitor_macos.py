@@ -481,8 +481,6 @@ class SensorCollector:
         self._pm_bg:       Optional[_BackgroundPoller] = None
         self._gpu_bg:      Optional[_BackgroundPoller] = None
         self._cputemp_bg:  Optional[_BackgroundPoller] = None
-        # EMA para suavizar picos de cpu_max_thread causados por fork() de subprocesos
-        self._max_thread_ema: float = 0.0
         self._init()
 
     def _init(self):
@@ -556,12 +554,7 @@ class SensorCollector:
         per_cpu = psutil.cpu_percent(percpu=True)
         s.cpu_usage_pct = sum(per_cpu) / len(per_cpu) if per_cpu else 0.0
 
-        # EMA (α=0.4) sobre el máximo por hilo para suavizar los picos de 99%
-        # que genera el fork() de subprocesos (powermetrics, ioreg) en la
-        # ventana de 200 ms. Un pico aislado queda en ~40% en vez de 99%.
-        raw_max = max(per_cpu) if per_cpu else 0.0
-        self._max_thread_ema = 0.4 * raw_max + 0.6 * self._max_thread_ema
-        s.cpu_max_thread_pct = self._max_thread_ema
+        s.cpu_max_thread_pct = max(per_cpu) if per_cpu else 0.0
 
         freq = psutil.cpu_freq()
         if freq and freq.current:
@@ -675,7 +668,7 @@ def build_packet(s: Sensors, counter: int = 0) -> bytes:
     buf[6]  = _clamp(s.gpu_power_w,        0, 255)   # SVA[2]  GPU power (W)
     buf[7]  = _clamp(s.cpu_power_w,        0, 255)   # SVA[3]  CPU package power (W)
     buf[8]  = _clamp(s.cpu_hotspot_c,      0, 255)   # SVA[4]  CPU hotspot temp (°C)
-    buf[9]  = _clamp(s.cpu_max_thread_pct, 0, 100)   # SVA[5]  CPU max thread (%)
+    buf[9]  = _clamp(s.cpu_temp_c,         0, 255)    # SVA[5]  → CPU temp (mismo que buf[4])
     buf[10] = _clamp(s.gpu_clock_mhz / 10, 0, 255)  # SVA[6]  GPU clock (MHz÷10)
     buf[11] = _clamp(s.cpu_clock_mhz / 48, 0, 255)  # SVA[7]  CPU clock (MHz÷48)
     buf[12] = 0x01                                    # SVA[8]  constante
