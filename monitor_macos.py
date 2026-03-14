@@ -481,6 +481,8 @@ class SensorCollector:
         self._pm_bg:       Optional[_BackgroundPoller] = None
         self._gpu_bg:      Optional[_BackgroundPoller] = None
         self._cputemp_bg:  Optional[_BackgroundPoller] = None
+        # EMA para suavizar picos de cpu_max_thread causados por fork() de subprocesos
+        self._max_thread_ema: float = 0.0
         self._init()
 
     def _init(self):
@@ -492,21 +494,22 @@ class SensorCollector:
             except Exception as e:
                 log.warning("SMC no disponible: %s", e)
 
-        # powermetrics en hilo de fondo (1 s de refresh)
+        # powermetrics en hilo de fondo — 5 s de refresh para minimizar
+        # el impacto de fork() en cpu_max_thread_pct medido por psutil.
         self._pm_bg = _BackgroundPoller(
-            _powermetrics_sample, interval=1.0, name="powermetrics"
+            _powermetrics_sample, interval=5.0, name="powermetrics"
         )
         self._pm_bg.start()
 
-        # GPU ioreg en hilo de fondo (1 s de refresh)
+        # GPU ioreg en hilo de fondo — 5 s de refresh (GPU stats cambian lento)
         self._gpu_bg = _BackgroundPoller(
-            _sample_gpu, interval=1.0, name="gpu-ioreg"
+            _sample_gpu, interval=5.0, name="gpu-ioreg"
         )
         self._gpu_bg.start()
 
         # osx-cpu-temp como fallback de temperatura (si SMC falla)
         self._cputemp_bg = _BackgroundPoller(
-            _cpu_temp_osx_cpu_temp, interval=1.0, name="osx-cpu-temp"
+            _cpu_temp_osx_cpu_temp, interval=5.0, name="osx-cpu-temp"
         )
         self._cputemp_bg.start()
 
@@ -550,9 +553,15 @@ class SensorCollector:
         s = Sensors()
 
         # ── psutil: uso y frecuencia CPU ──────────────────────────────────────
-        per_cpu         = psutil.cpu_percent(percpu=True)
-        s.cpu_usage_pct      = sum(per_cpu) / len(per_cpu) if per_cpu else 0.0
-        s.cpu_max_thread_pct = max(per_cpu) if per_cpu else 0.0
+        per_cpu = psutil.cpu_percent(percpu=True)
+        s.cpu_usage_pct = sum(per_cpu) / len(per_cpu) if per_cpu else 0.0
+
+        # EMA (α=0.4) sobre el máximo por hilo para suavizar los picos de 99%
+        # que genera el fork() de subprocesos (powermetrics, ioreg) en la
+        # ventana de 200 ms. Un pico aislado queda en ~40% en vez de 99%.
+        raw_max = max(per_cpu) if per_cpu else 0.0
+        self._max_thread_ema = 0.4 * raw_max + 0.6 * self._max_thread_ema
+        s.cpu_max_thread_pct = self._max_thread_ema
 
         freq = psutil.cpu_freq()
         if freq and freq.current:
