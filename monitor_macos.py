@@ -715,11 +715,10 @@ class HIDDevice:
     def connect(self, retries: int = 3, delay: float = 1.0) -> bool:
         for attempt in range(retries):
             try:
-                dev = hid.device()
-                dev.open(VENDOR_ID, PRODUCT_ID)
-                dev.set_nonblocking(1)
+                dev = hid.Device(VENDOR_ID, PRODUCT_ID)
+                dev.nonblocking = True
                 self._dev = dev
-                name = dev.get_product_string() or "AIO Display"
+                name = getattr(dev, "product", None) or "AIO Display"
                 log.info("Display conectado: %s (VID=%04X PID=%04X)", name, VENDOR_ID, PRODUCT_ID)
                 return True
             except Exception as e:
