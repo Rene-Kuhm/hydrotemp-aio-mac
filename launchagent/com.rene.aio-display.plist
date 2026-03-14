@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rene.aio-display</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Ajusta esta ruta si instalaste Python en otra ubicación -->
+        <string>/usr/bin/python3</string>
+        <string>/Users/rene/monitor_macos.py</string>
+        <!-- Quita el comentario para activar log de sensores en cada ciclo: -->
+        <!-- <string>--verbose</string> -->
+    </array>
+
+    <!-- Reiniciar automáticamente si el proceso muere -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Arrancar cuando el usuario inicia sesión -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Esperar 5 s al arrancar (da tiempo a que el USB se inicialice) -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/aio-display.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/aio-display.err</string>
+
+    <!-- Variables de entorno (añadir PATH del virtualenv si usas uno) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>
