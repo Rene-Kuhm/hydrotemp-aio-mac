@@ -1,15 +1,20 @@
 #!/bin/bash
-# Desinstalador de AIO Display Driver
+# Desinstalador de AIO Display Driver + RGB Controller
 set -e
 
-LABEL="com.rene.aio-display"
 CONSOLE_UID=$(id -u)
 
-echo "Deteniendo servicio..."
-launchctl bootout gui/"$CONSOLE_UID"/"$LABEL" 2>/dev/null || true
+echo "Deteniendo servicios..."
+launchctl bootout gui/"$CONSOLE_UID"/com.rene.aio-display 2>/dev/null || true
+launchctl bootout gui/"$CONSOLE_UID"/com.rene.aio-rgb 2>/dev/null || true
 
 echo "Eliminando archivos..."
 sudo rm -rf /usr/local/lib/aio-display
+sudo rm -rf /usr/local/lib/aio-rgb
 sudo rm -f /Library/LaunchAgents/com.rene.aio-display.plist
+sudo rm -f /Library/LaunchAgents/com.rene.aio-rgb.plist
 
-echo "AIO Display Driver desinstalado correctamente."
+echo "AIO Display Driver + RGB Controller desinstalado correctamente."
+echo ""
+echo "Nota: La configuración de color se conserva en ~/.config/aio-rgb/"
+echo "Para eliminarla: rm -rf ~/.config/aio-rgb"
