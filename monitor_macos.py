@@ -481,6 +481,7 @@ class SensorCollector:
         self._pm_bg:       Optional[_BackgroundPoller] = None
         self._gpu_bg:      Optional[_BackgroundPoller] = None
         self._cputemp_bg:  Optional[_BackgroundPoller] = None
+        self._last_stable_max_thread: float = 0.0
         self._init()
 
     def _init(self):
@@ -554,7 +555,14 @@ class SensorCollector:
         per_cpu = psutil.cpu_percent(percpu=True)
         s.cpu_usage_pct = sum(per_cpu) / len(per_cpu) if per_cpu else 0.0
 
-        s.cpu_max_thread_pct = max(per_cpu) if per_cpu else 0.0
+        raw_max = max(per_cpu) if per_cpu else 0.0
+        # Filtrar picos falsos de subprocess fork (powermetrics, ioreg):
+        # si max_thread sube a 99%+ pero el promedio total es bajo, es artefacto.
+        if raw_max >= 99.0 and s.cpu_usage_pct < 20.0:
+            s.cpu_max_thread_pct = self._last_stable_max_thread
+        else:
+            s.cpu_max_thread_pct = raw_max
+            self._last_stable_max_thread = raw_max
 
         freq = psutil.cpu_freq()
         if freq and freq.current:
@@ -665,10 +673,10 @@ def build_packet(s: Sensors, counter: int = 0) -> bytes:
     # ── Sensores principales (SVA[0..10]) ────────────────────────────────────
     buf[4]  = _clamp(s.cpu_temp_c,         0, 255)   # SVA[0]  CPU core temp (°C)
     buf[5]  = _clamp(s.gpu_usage_pct,      0, 100)   # SVA[1]  GPU usage (%)
-    buf[6]  = _clamp(s.gpu_power_w,        0, 255)   # SVA[2]  GPU power (W)
+    buf[6]  = 0x00                                    # SVA[2]  GPU power — fijo 0 (valor >0 causa que el display muestre 0 en CPU)
     buf[7]  = _clamp(s.cpu_power_w,        0, 255)   # SVA[3]  CPU package power (W)
     buf[8]  = _clamp(s.cpu_hotspot_c,      0, 255)   # SVA[4]  CPU hotspot temp (°C)
-    buf[9]  = _clamp(s.cpu_temp_c,         0, 255)    # SVA[5]  → CPU temp (mismo que buf[4])
+    buf[9]  = _clamp(s.cpu_max_thread_pct,  0, 100)   # SVA[5]  CPU max thread usage (%)
     buf[10] = _clamp(s.gpu_clock_mhz / 10, 0, 255)  # SVA[6]  GPU clock (MHz÷10)
     buf[11] = _clamp(s.cpu_clock_mhz / 48, 0, 255)  # SVA[7]  CPU clock (MHz÷48)
     buf[12] = 0x01                                    # SVA[8]  constante
@@ -688,12 +696,12 @@ def build_packet(s: Sensors, counter: int = 0) -> bytes:
 
     # ── Fan RPM — encoding: hi = rpm÷100, lo = rpm%100 (SVA[18..21]) ─────────
     fan  = max(0, min(25500, s.cpu_fan_rpm))
-    buf[22] = fan // 100    # SVA[18]
-    buf[23] = fan % 100     # SVA[19]
+    buf[22] = fan // 100    # SVA[18] — fan RPM parte alta
+    buf[23] = fan % 100     # SVA[19] — fan RPM parte baja
 
-    pump = max(0, min(25500, s.pump_rpm))
-    buf[24] = pump // 100   # SVA[20]
-    buf[25] = pump % 100    # SVA[21]
+    # Pump = Fan RPM (el display AIO requiere pump > 0; en Windows pump=fan)
+    buf[24] = fan // 100    # SVA[20] — pump hi = fan hi
+    buf[25] = fan % 100     # SVA[21] — pump lo = fan lo
 
     # ── Display config — umbrales de color y constantes (SVA[22..30]) ─────────
     # Valores por defecto observados en capturas reales de PC Monitor All.exe
@@ -702,7 +710,7 @@ def build_packet(s: Sensors, counter: int = 0) -> bytes:
     buf[28] = 0x03   # SVA[24] =  3  — umbral CPU Power color
     buf[29] = 0x0E   # SVA[25] = 14  — umbral CPU Freq color
     buf[30] = 0x12   # SVA[26] = 18  — umbral CPU Voltage color
-    buf[31] = 0x20   # SVA[27] = 32  — umbral GPU
+    buf[31] = 0x19   # SVA[27] = 25  — umbral GPU (igual que Windows Sesión 1)
     buf[32] = counter & 0xFF  # SVA[28] — contador incremental (wraps en 255)
     buf[33] = 0x06   # SVA[29] = 6   — constante
     buf[34] = 0x19   # SVA[30] = 25  — constante
@@ -773,6 +781,7 @@ class Driver:
         self._verbose   = verbose
         self._running   = True
         self._counter   = 0
+        self._pkt_count = 0   # para incrementar counter cada 3 paquetes (como Windows)
         self._sensors   = SensorCollector()
         self._hid       = HIDDevice() if not dry_run else None
         self._last_reconn = 0.0
@@ -846,7 +855,11 @@ class Driver:
                     )
                     log.info("Bytes [4..14]: %s", packet[4:15].hex(" "))
 
-                self._counter = (self._counter + 1) & 0xFF
+                # Incrementar counter cada 3 paquetes (~1.67 Hz) como PC Monitor All.exe
+                # En Windows incrementa "~1 cada 3-4 paquetes" según análisis del protocolo.
+                self._pkt_count += 1
+                if self._pkt_count % 3 == 0:
+                    self._counter = (self._counter + 1) & 0xFF
 
                 if self._dry_run:
                     log.info("DRY-RUN packet: %s", packet.hex(" "))

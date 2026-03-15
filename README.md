@@ -5,7 +5,9 @@ reverse-engineered a partir del software oficial de Windows.
 
 > **Hardware:** Display USB — VID `0x5131` / PID `0x2007` (FBB)
 > **Sistema analizado:** Windows 11 Pro + PC Monitor All.exe (.NET 4.x / CyUSB)
-> **Driver macOS:** Python 3, sin drivers adicionales, compatible Intel Mac y Hackintosh
+> **Driver macOS:** Python 3, sin drivers adicionales, compatible Intel Mac (Xeon W / Mac Pro) y Hackintosh
+
+**Estado:** Funcionando — muestra CPU temp, GPU temp, fan RPM y todas las métricas en tiempo real.
 
 ---
 
@@ -42,7 +44,7 @@ El display recibe paquetes HID Output Report de **65 bytes** cada 200 ms:
 [1..3]  = 00 01 02    header fijo
 [4]     = CPU temp (°C, directo)
 [5]     = GPU usage (%, directo)
-[6]     = GPU power (W, directo)
+[6]     = 0x00  (GPU power — debe ser 0, ver nota)
 [7]     = CPU package power (W, directo)
 [8]     = CPU hotspot/package temp (°C, directo)
 [9]     = CPU max thread usage (%, directo)
@@ -62,6 +64,15 @@ El display recibe paquetes HID Output Report de **65 bytes** cada 200 ms:
 [26..34]= config display (umbrales de color + contador incremental)
 [35..64]= 0x00  (padding)
 ```
+
+> **Nota buf[6] (GPU power):** El firmware del display tiene un bug donde valores > 0
+> en este byte causan que el campo CPU muestre "0". Se debe enviar siempre `0x00`.
+
+> **Nota pump RPM:** El display requiere pump RPM > 0 para funcionar correctamente.
+> Si no hay bomba de agua, enviar el mismo valor que fan RPM (como hace Windows).
+
+> **Nota contador (buf[32]):** Debe incrementar de forma monotónica (~1 cada 3 paquetes).
+> Si oscila o no incrementa, el display muestra 0.
 
 El análisis completo con todas las capturas reales, decodificaciones y
 el código de referencia está en [`docs/AIO-Display-Protocol-Analysis.md`](docs/AIO-Display-Protocol-Analysis.md).
@@ -189,7 +200,22 @@ Driver (200 ms loop)
 
 ---
 
-## Hardware de referencia (análisis original)
+## Quirks del firmware del display
+
+Descubiertos durante la depuración en Mac Pro (Xeon W):
+
+| Problema | Causa | Solución |
+|---|---|---|
+| CPU muestra "0" | buf[6] (GPU power) > 0 | Fijar buf[6] = 0x00 siempre |
+| CPU muestra "0 y 99" | pump RPM = 0 (buf[24-25]) | Enviar pump = fan RPM |
+| Display muestra "0" fijo | Contador (buf[32]) no incrementa o oscila | Incrementar monotónicamente (~1 cada 3 paquetes) |
+| max_thread sube a 99% | Fork de subprocess (powermetrics/ioreg) | Filtrar: si raw >= 99% y uso total < 20%, usar valor anterior |
+
+---
+
+## Hardware de referencia
+
+### Análisis original (Windows)
 
 | Componente | Modelo |
 |---|---|
@@ -199,17 +225,26 @@ Driver (200 ms loop)
 | OS análisis | Windows 11 Pro 10.0.26200 |
 | App analizada | PC Monitor All.exe (.NET 4.x, Cypress CyUSB) |
 
+### Driver macOS (validado)
+
+| Componente | Modelo |
+|---|---|
+| CPU | Intel Xeon W |
+| GPU | AMD (vía ioreg IOAccelerator) |
+| OS | macOS Sequoia (Darwin 25.3.0) |
+| Mac | Mac Pro |
+
 ---
 
 ## Paquetes reales capturados (verificación)
 
 ```
 # Sistema recién arrancado, GPU caliente:
-00 00 01 02  21 00 00 3D 40 1E 34 57 01 64 21 00 00 00 00 0A 00 06 0B 3B 0B 3B 14 1A 03 0E 12 19 1C 06 19  [00×28]
+00 00 01 02  21 00 00 3D 40 1E 34 57 01 64 21 00 00 00 00 0A 00 06 0B 3B 0B 3B 14 1A 03 0E 12 19 1C 06 19  [00x28]
 # CPU:33°C hotspot:64°C uso:6% max:30% 4176MHz 61W 1.00V | GPU:33°C 0% 340MHz | Fan:1159RPM
 
 # Sistema en idle estable:
-00 00 01 02  1E 00 00 19 2A 46 23 5B 01 64 22 00 00 00 00 0A 00 1E 0C 07 0C 07 14 1A 03 0E 12 20 16 06 19  [00×28]
+00 00 01 02  1E 00 00 19 2A 46 23 5B 01 64 22 00 00 00 00 0A 00 1E 0C 07 0C 07 14 1A 03 0E 12 20 16 06 19  [00x28]
 # CPU:30°C hotspot:42°C uso:30% max:70% 4368MHz 25W 1.00V | GPU:34°C 0% 350MHz | Fan:1207RPM
 ```
 
