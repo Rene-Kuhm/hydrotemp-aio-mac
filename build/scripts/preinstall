@@ -1,0 +1,7 @@
+#!/bin/bash
+# Detener cualquier instancia anterior antes de sobreescribir archivos
+LABEL="com.rene.aio-display"
+CONSOLE_USER=$(stat -f "%Su" /dev/console)
+CONSOLE_UID=$(id -u "$CONSOLE_USER")
+launchctl bootout gui/"$CONSOLE_UID"/"$LABEL" 2>/dev/null || true
+exit 0

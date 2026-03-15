@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+PLIST="/Library/LaunchAgents/com.rene.aio-display.plist"
+LABEL="com.rene.aio-display"
+
+# Obtener el usuario de consola (el que hizo doble clic en el instalador)
+CONSOLE_USER=$(stat -f "%Su" /dev/console)
+CONSOLE_UID=$(id -u "$CONSOLE_USER")
+
+# Descargar agente anterior (ignorar error en primera instalacion)
+launchctl bootout gui/"$CONSOLE_UID"/"$LABEL" 2>/dev/null || true
+
+# Permisos correctos
+chmod 644 "$PLIST"
+chmod +x /usr/local/lib/aio-display/aio-display
+
+# Cargar el agente para el usuario de consola
+launchctl bootstrap gui/"$CONSOLE_UID" "$PLIST"
+
+exit 0
