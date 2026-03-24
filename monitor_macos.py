@@ -62,6 +62,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+import ctypes as _ctypes
+try:
+    _ctypes.cdll.LoadLibrary('/usr/local/lib/libhidapi.dylib')
+except OSError:
+    pass
 import hid
 import psutil
 

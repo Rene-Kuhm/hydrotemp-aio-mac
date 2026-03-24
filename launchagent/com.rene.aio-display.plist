@@ -8,8 +8,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <!-- Ajusta esta ruta si instalaste Python en otra ubicación -->
-        <string>/usr/bin/python3</string>
+        <!-- Python 3.14 desde python.org — no usar /usr/bin/python3 (es Python 3.9 de Xcode, no tiene hid) -->
+        <string>/Library/Frameworks/Python.framework/Versions/3.14/bin/python3</string>
         <string>/Users/rene/monitor_macos.py</string>
         <!-- Quita el comentario para activar log de sensores en cada ciclo: -->
         <!-- <string>--verbose</string> -->
@@ -38,6 +38,8 @@
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>DYLD_LIBRARY_PATH</key>
+        <string>/usr/local/lib</string>
     </dict>
 </dict>
 </plist>
